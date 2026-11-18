@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bienvenue</title>
+  <title>Bienvenue & Horaires SNCB</title>
   <style>
     * {
       box-sizing: border-box;
@@ -65,6 +65,61 @@
       color: #64748b;
       font-weight: 300;
     }
+
+    /* Styles spécifiques pour le tableau des trains iRail */
+    .train-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+      text-align: left;
+      font-size: 1.4rem;
+    }
+    .train-table th {
+      color: #94a3b8;
+      font-weight: 400;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .train-table td {
+      padding: 0.9rem 0.5rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .train-table tr:last-child td {
+      border-bottom: none;
+    }
+    .train-time {
+      font-weight: 700;
+      color: #38bdf8;
+      width: 18%;
+    }
+    .train-delay {
+      color: #f87171;
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-left: 6px;
+    }
+    .train-dest {
+      font-weight: 600;
+      width: 52%;
+    }
+    .train-type {
+      color: #94a3b8;
+      font-size: 1.1rem;
+      width: 15%;
+    }
+    .train-platform {
+      text-align: center;
+      font-weight: 700;
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border-radius: 8px;
+      padding: 0.2rem 0.6rem;
+      display: inline-block;
+      min-width: 40px;
+    }
   </style>
 </head>
 <body>
@@ -72,16 +127,38 @@
   <div class="container">
     <img src="logo.jpg" alt="Logo" class="logo" id="site-logo" onerror="this.style.display='none';">
 
-    <!-- Zone dynamique d'affichage des encadrés -->
-    <div id="cards-container" style="width: 100%; display: flex; flex-direction: column; gap: 1.5rem;">
+    <!-- CONTENEUR ÉCRAN 1 : AGENDA / BIENVENUE -->
+    <div id="screen-welcome" style="width: 100%; display: flex; flex-direction: column; gap: 1.5rem;">
       <div class="card" id="standby-card">
         <p class="standby-msg">Bienvenue</p>
       </div>
+    </div>
+
+    <!-- CONTENEUR ÉCRAN 2 : HORAIRES DES TRAINS (Bruxelles-Nord) -->
+    <div id="screen-trains" class="card" style="display: none;">
+      <h2>Prochains départs — Bruxelles-Nord</h2>
+      <table class="train-table">
+        <thead>
+          <tr>
+            <th>Heure</th>
+            <th>Destination</th>
+            <th>Train</th>
+            <th style="text-align: right;">Quai</th>
+          </tr>
+        </thead>
+        <tbody id="train-list">
+          <tr><td colspan="4" style="text-align:center; color:#94a3b8;">Chargement des horaires...</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
   <script>
     const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbweZ9OmSVqYC3b9Ee9dIwjKNL7V-hUqu9ynCVodBSC0KZH7zHc2DwviqGpxOmgq2tG_/exec";
+    // API iRail officielle pour la gare de Bruxelles-Nord (ID iRail: BE.NMBS.008812005)
+    const IRAIL_URL = "https://api.irail.be/liveboard/?id=BE.NMBS.008812005&format=json&lang=fr";
+
+    let showingWelcome = true;
 
     // --- Fonction Plein Écran ---
     function enableFullScreen() {
@@ -92,21 +169,19 @@
       }
     }
 
-    // Active le plein écran au premier clic / touché sur l'écran de la tablette
     document.addEventListener("click", enableFullScreen);
     document.addEventListener("touchstart", enableFullScreen);
 
-    // --- Récupération des événements ---
+    // --- 1. Récupération des événements (Google Agenda) ---
     async function fetchCompany() {
       try {
         const response = await fetch(SCRIPT_URL);
         const data = await response.json();
         
-        const container = document.getElementById("cards-container");
-        container.innerHTML = ""; // Nettoie le contenu précédent
+        const container = document.getElementById("screen-welcome");
+        container.innerHTML = ""; 
         
         if (data && data.companies && data.companies.length > 0) {
-          // Génère un encadré distinct par événement/visiteur en cours
           data.companies.forEach(companyName => {
             const card = document.createElement("div");
             card.className = "card";
@@ -117,18 +192,17 @@
             container.appendChild(card);
           });
         } else {
-          // Affichage du mode veille si aucun événement
           const standbyCard = document.createElement("div");
           standbyCard.className = "card";
           standbyCard.innerHTML = `<p class="standby-msg">Bienvenue</p>`;
           container.appendChild(standbyCard);
         }
       } catch (err) {
-        console.error("Erreur de récupération :", err);
+        console.error("Erreur de récupération agenda :", err);
       }
     }
 
-    // --- 2. Récupération des trains (Bruxelles-Nord via iRail) ---
+    // --- 2. Récupération des trains iRail (Bruxelles-Nord) ---
     async function fetchTrains() {
       try {
         const response = await fetch(IRAIL_URL);
@@ -138,20 +212,21 @@
         
         tbody.innerHTML = "";
         
-        // Affichage des 5 ou 6 prochains départs pour s'adapter à l'écran
+        // On affiche les 5 ou 6 prochains départs pour garder une belle visibilité
         const nextTrains = departures.slice(0, 6);
         
         nextTrains.forEach(train => {
+          // Conversion de l'heure UNIX en HH:MM
           const date = new Date(parseInt(train.time) * 1000);
           const hours = String(date.getHours()).padStart(2, '0');
           const minutes = String(date.getMinutes()).padStart(2, '0');
           const timeStr = `${hours}:${minutes}`;
           
-          // Gestion des retards éventuels
+          // Gestion d'un éventuel retard en minutes
           const delayMin = Math.round(parseInt(train.delay) / 60);
           const delayHtml = delayMin > 0 ? `<span class="train-delay">+${delayMin}'</span>` : "";
           
-          // Type de train (IC, S1, L, etc.)
+          // Nom court du train (ex: IC, S1, etc.)
           const vehicleParts = train.vehicle.split('.');
           const trainShortName = vehicleParts[vehicleParts.length - 1];
           
@@ -169,12 +244,12 @@
           tbody.innerHTML += row;
         });
       } catch (err) {
-        console.error("Erreur de récupération SNCB :", err);
+        console.error("Erreur de récupération iRail :", err);
         document.getElementById("train-list").innerHTML = `<tr><td colspan="4" style="text-align:center; color:#f87171;">Impossible de charger les horaires</td></tr>`;
       }
     }
 
-    // --- 3. Alternance des deux écrans ---
+    // --- 3. Alternance des écrans (toutes les 2 minutes = 120000 ms) ---
     function toggleScreens() {
       const welcomeScreen = document.getElementById("screen-welcome");
       const trainsScreen = document.getElementById("screen-trains");
@@ -182,25 +257,27 @@
       showingWelcome = !showingWelcome;
       
       if (showingWelcome) {
-        welcomeScreen.style.display = "block";
+        welcomeScreen.style.display = "flex";
+        welcomeScreen.style.flexDirection = "column";
+        welcomeScreen.style.gap = "1.5rem";
         trainsScreen.style.display = "none";
       } else {
-        fetchTrains(); // Actualise les horaires juste avant de les afficher
+        fetchTrains(); // Met à jour les horaires juste avant l'affichage
         welcomeScreen.style.display = "none";
         trainsScreen.style.display = "block";
       }
     }
 
-    // Lancements initiaux
+    // Initialisation au chargement de la page
     fetchCompany();
     fetchTrains();
 
-    // Actualisations automatiques en arrière-plan
-    setInterval(fetchCompany, 30000);  // Vérifie l'agenda toutes les 30 secondes
-    setInterval(fetchTrains, 60000);   // Met à jour les trains toutes les 60 secondes
+    // Actualisations en arrière-plan
+    setInterval(fetchCompany, 30000);  // Actualise l'agenda toutes les 30s
+    setInterval(fetchTrains, 60000);   // Actualise les trains toutes les 60s
     
-    // Bascule d'affichage toutes les 2 minutes (120 000 ms)
-    setInterval(toggleScreens, 15000);
+    // Bascule d'affichage toutes les 2 minutes
+    setInterval(toggleScreens, 12000);
   </script>
 </body>
 </html>
